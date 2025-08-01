@@ -1,6 +1,11 @@
 # Data Cleaning Utilities
 # This module provides utility functions for data cleaning tasks.
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import pandas as pd
 def plot_null_correlations(df):
+
     # create a correlation matrix only for columns with at least
     # one missing value
     cols_with_missing_vals = df.columns[df.isnull().sum() > 0]
