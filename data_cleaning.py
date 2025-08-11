@@ -4,6 +4,17 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import pandas as pd
+from geopy.geocoders import Nominatim
+
+""" The function below uses seaborn.heatmap() to represent the correlation
+between columns with missing values. The values are represented as a
+heatmap, where the color intensity indicates the strength of the correlation.
+This is useful for identifying relationships between missing values in different columns. 
+Values very close to 0, where there is little to no relationship, aren't labeled.
+Values close to -1 indicate a near perfect negative correlation. 
+That means for almost every row that has a null value in one column, 
+the other has a non-null value and vice-versa.
+"""
 def plot_null_correlations(df):
 
     # create a correlation matrix only for columns with at least
@@ -33,3 +44,20 @@ def plot_null_correlations(df):
     plt.yticks(rotation=0, size='x-large')
 
     plt.show()
+
+""" The function below uses seaborn.heatmap() to represent null values 
+as light squares and non-null values as dark squares.
+This is useful for visualizing the distribution of missing values
+across the DataFrame. 
+Sorting the DataFrame is recommended before using this function.
+This will gather some of the null and non-null values together and make patterns more obvious."""
+def plot_null_matrix(df, figsize=(18,15)):
+    # initiate the figure
+    plt.figure(figsize=figsize)
+    # create a boolean dataframe based on whether values are null
+    df_null = df.isnull()
+    # create a heatmap of the boolean dataframe
+    sns.heatmap(~df_null, cbar=False, yticklabels=False)
+    plt.xticks(rotation=90, size='x-large')
+    plt.show()
+
