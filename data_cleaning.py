@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import pandas as pd
-from geopy.geocoders import Nominatim
+
 
 """ The function below uses seaborn.heatmap() to represent the correlation
 between columns with missing values. The values are represented as a
