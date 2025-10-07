@@ -169,7 +169,8 @@ def plot_linearity_checks_for_target_vs_cat(X,y,normalize_target=True):
 
 # define a function to plot 3 plots for predicted vs actual
 # a distribution plot, a scatter plot and a residual plot
-def plot_actual_vs_predicted(X,y,y_pred,figsize=(15,5),data_label='', run_statistical_tests=True):
+def plot_actual_vs_predicted(y,y_pred,X=None,figsize=(15,5),data_label='', run_statistical_tests=False):
+    '''X is only used for statistical tests, plotting is all done using y,y_pred only'''
     print(f'{"R-squared:":20} {r2_score(y,y_pred):.4f}')
     print(f'{"Mean Squared Error:":20} {mean_squared_error(y,y_pred):.2e}')
     print(f'{"Mean Absolute Error:":20} {mean_absolute_error(y,y_pred):.2e}')
@@ -279,4 +280,51 @@ def plot_poly_reg_1d(x,y,degree=2,feature_name='x',target_name='y',num_points_x=
     plt.legend()
     plt.xlabel(f'{feature_name}')
     plt.ylabel(f'{target_name}')
+    plt.show()
+    return model
+
+def plot_GridSearchCV_scores_by_split(cv_results_df, scorer_name='score',n_splits = 30,ranks_list=None):
+    '''function to plot GridSearch score by CV split for all given models
+    This shows the dependency between cv fold and the score
+    Since some partitions of the data can make the model fitting particularly easy 
+    or hard for all models, the models scores will co-vary.
+    This plot can also be used as a visual tool for comparing different model.'''
+    # Following steps are done to get cv_results_df:
+    # df = pd.DataFrame(grid_search_model.cv_results_)
+    # if multi_metric_eval and scorer_name == 'score':
+    #     print('Must provide a scorer name in case of multi metric evaluation')
+    #     return
+    # sort_by_col = 'rank_test_' + scorer_name
+    # df = df.sort_values(by=[sort_by_col])
+    # df = df.set_index(
+    #     df["params"].apply(lambda x: "_".join(str(val) for val in x.values()))
+    #     ).rename_axis("param_comb")
+        
+    # filter columns to get score for each CV split
+    model_scores = cv_results_df.filter(regex=f"split\d*_test_{scorer_name}")
+    # iloc doesn't raise out-of-bounds error when using slicing, so let's put a check on n_splits
+    max_splits = len(model_scores.columns)
+    if n_splits > max_splits:
+        print(f'There are only {max_splits} CV splits total')
+        n_splits = max_splits
+    # Let's plot test score cv fold 
+    fig, ax = plt.subplots()
+    if ranks_list:
+        ranks_list = [n-1 for n in ranks_list]
+        sns.lineplot(
+            data = model_scores.transpose().iloc[:n_splits,ranks_list], # default: plot for 30 splits and given param sets
+            dashes=False,
+            palette='Set2',
+            ax=ax
+        )
+    else:
+        sns.lineplot(
+            data = model_scores.transpose().iloc[:n_splits,:], # default: plot for 30 splits and all param sets
+            dashes=False,
+            palette='Set2',
+            ax=ax
+        )        
+    plt.tick_params(bottom=True, labelbottom=False)
+    plt.xlabel(f'CV test splits 0-{n_splits}')
+    plt.ylabel(f'{scorer_name}')
     plt.show()
