@@ -137,21 +137,45 @@ def multicollinearity_VIF(X):
     1= Not correlated
     1–5 = Moderately correlated
     >5 = Highly correlated
+    By default, statsmodels.api.OLS does not include an intercept. 
+    Adding a constant (a column of ones) to the independent variables (exog) allows the 
+    model to fit an intercept (the "b" in y = mx + b). Without sm.add_constant, 
+    the regression line is forced through the origin, which can lead to biased 
+    estimates and misleading statistics like R-squared.
     '''
     X = pd.DataFrame(X)
+    cols = X.columns
+
     if X.shape[1]==1:
         print('X must be multidimensional.')
         return
     # create dataframe for saving VIF values for each column 
     vif = pd.DataFrame()
-    vif["VIF"] = [variance_inflation_factor(X, i) for i in range(X.shape[1])]
-    vif["feature"] = X.columns
+    # Following line of code doesn't work because variance_inflation_factor 
+    # doesn's add the contant to the exog. This breaks the OLS model's implementation
+    # in statsmodels.
+    # vif["VIF"] = [variance_inflation_factor(X, i) for i in range(X.shape[1])]
+    # So let's add this manually using in the code:
+    # https://www.statsmodels.org/dev/_modules/statsmodels/stats/outliers_influence.html#variance_inflation_factor
+    vif_values = []
+    for i in range(X.shape[1]):
+        k_vars = X.shape[1]
+        X = np.asarray(X)
+        x_i = X[:, i]
+        mask = np.arange(k_vars) != i
+        x_noti = X[:, mask]
+        x_noti = sm.add_constant(x_noti) # adding the constant before OLS
+        r_squared_i = sm.OLS(x_i, x_noti).fit().rsquared
+        vif_value = 1.0 / (1.0 - r_squared_i)    
+        vif_values.append(round(vif_value,1))
+    vif["VIF"] = vif_values
+    vif["feature"] = cols
     def result(vif_value):
-        if vif_value ==1:
+        if vif_value == 1.0:
             return 'Not correlated'
-        elif vif_value > 1 and vif_value <=5:
+        elif vif_value > 1.0 and vif_value <=5.0:
             return 'Moderately correlated'
-        elif vif_value > 5:
+        elif vif_value > 5.0:
             return 'Highly correlated'
         return 'something went wrong'
     vif['result'] = vif['VIF'].apply(result)
@@ -159,7 +183,7 @@ def multicollinearity_VIF(X):
     Each independent variable is tested against the rest to calclulate VIF(Variance Inflation Factor).
     VIF for each independent variable:      ''')
     print("-------------------------------------------------")
-    print(vif.round(1))
+    print(vif)
     print('''
     Here is how it can be interpreted :
     1= Not correlated
