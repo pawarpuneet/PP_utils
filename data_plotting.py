@@ -396,14 +396,14 @@ def clf_confusion_matrix_from_estimator(X,y,classifiers={}):
         plt.show()
     
 
-# def plot_roccurve_comparison(X, y, estimators=[]):
-#     '''Uses RocCurveDisplay.from_estimator and plots roc curves
-#     for a list of estimators for comparison'''
-#     est0_disp = RocCurveDisplay.from_estimator(estimators[0], X, y)
-#     for est in estimators[1:]:
-#         RocCurveDisplay.from_estimator(est, X, y, ax=est0_disp.ax_)
-#     est0_disp.figure_.suptitle("ROC curve comparison")
-#     plt.show()
+def clf_roccurve_comparison(X, y, estimators=[]):
+    '''Uses RocCurveDisplay.from_estimator and plots roc curves
+    for a list of estimators for comparison'''
+    est0_disp = RocCurveDisplay.from_estimator(estimators[0], X, y)
+    for est in estimators[1:]:
+        RocCurveDisplay.from_estimator(est, X, y, ax=est0_disp.ax_)
+    est0_disp.figure_.suptitle("ROC curve comparison")
+    plt.show()
 
 def clf_classification_curves(X, y, classifiers={}, add_dummy_classifier=False,fit_classifiers = False, X_train=None, y_train=None):
     '''
