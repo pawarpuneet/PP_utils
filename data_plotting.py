@@ -358,8 +358,13 @@ def plot_GridSearchCV_scores_by_split(cv_results_df, scorer_name='score',n_split
             ax=ax
         )        
     plt.tick_params(bottom=True, labelbottom=False)
-    plt.xlabel(f'CV test splits 0-{n_splits}')
+    plt.xlabel(f'CV test splits 0-{n_splits-1}')
     plt.ylabel(f'{scorer_name}')
+    # Extract legend handles and labels
+    # axes = plt.gca()
+    # handles, labels = axes.get_legend_handles_labels()
+    # # Add a single, centralized legend for the entire figure
+    # plt.legend(handles, labels, title='rank_test_score - 1')
     plt.show()
 
 def clf_confusion_matrix(y,y_pred,classes=[],title_label='',print_classification_report=True):
@@ -454,8 +459,9 @@ def clf_classification_curves(X, y, classifiers={}, add_dummy_classifier=False,f
     ax[2].set_title("Detection Error Tradeoff (DET) curve")
     plt.legend()
     plt.show()
-    print('''DummyClassifier is a classifier that makes constant predictions, 
-    independent of the input features in X, making it a non-informative classifier.''')
+    if add_dummy_classifier:
+        print('''DummyClassifier is a classifier that makes constant predictions, 
+        independent of the input features in X, making it a non-informative classifier.''')
 
 def clf_roc_curve_with_cross_val(classifier,X,y,n_splits=6):
     '''Cross validate roc-curve using StratifiedKFold with 6 splits

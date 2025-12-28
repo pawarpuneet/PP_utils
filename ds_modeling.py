@@ -12,11 +12,19 @@ from PP_utils import data_plotting
 import warnings
 from sklearn.exceptions import UndefinedMetricWarning
 
-def GridSearchCV_results(grid_search_model,cv,X,y, scorer_name='score', multi_metric_eval=False, ranks_list=None, plot_score_by_split=True, plot_n_splits=30, run_ttest=False):
+##############################################################
+################## Grid Search Utilities ##################
+##############################################################
+
+def GridSearchCV_results(grid_search_model,cv=None,X=None,y=None, scorer_name='score', multi_metric_eval=False, ranks_list=None, plot_score_by_split=True, plot_n_splits=30, run_ttest=False):
     '''returns cols: params, rank_test*, mean_test*,std_test*
     For multi-metric evaluation, cols end with _scorer_name instead of _score
     returns pairwise_comp_df, df_test when run_ttest = True
-    otherwise returns df_test'''
+    otherwise returns df_test
+    cv, X, y are only needed if run_ttest = True
+    grid_search_model needs to have at least 100 samples for each model if run_ttest = True.
+    '''
+    
     df = pd.DataFrame(grid_search_model.cv_results_)
     if multi_metric_eval and scorer_name == 'score':
         print('Must provide a scorer name in case of multi metric evaluation')
@@ -173,14 +181,14 @@ def GridSearchCV_pairwise_ttest(model_scores,cv_generator,X,y):
     pairwise_comp_df = pd.DataFrame(
         pairwise_t_test, columns=["model_1", "model_2", "t_stat", "p_val"]
     ).round(3)
-    pairwise_comp_df['result'] = np.where(pairwise_comp_df['p_val'] < 0.05, 'reject H0', "don't reject H0")
+    pairwise_comp_df['result'] = np.where(pairwise_comp_df['p_val'] < 0.1, 'reject H0', "don't reject H0")
     # print('''
     # Pairwise t-test for the param combinations.
     # Hypotheses:
     # Null H0: Mean test scores of both the models are equal 
     # Alternative H1: Mean test score of model_1 is greater than model_2 
     #                 implying that model_1 is better than model_2
-    # Significance level used = 0.05
+    # Significance level used = 0.1, if p_val < 0.1 then 'reject H0'
     #     ''')
     return pairwise_comp_df
 
@@ -458,3 +466,8 @@ def classification_tuning_decision_threshold_binary(X_train,y_train,X_test,y_tes
     Score (test set) before tuned threshold = {score_without_tuning}\n
     Score (test set) with tuned threshold = {score_with_tuning}\n
     Best Score from cv = {best_score_cv}''')
+
+##############################################################
+################## Common Utilities ##################
+##############################################################
+

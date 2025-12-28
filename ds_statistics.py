@@ -1,6 +1,7 @@
 from scipy.stats import (kstest, shapiro, normaltest, jarque_bera, 
                          cramervonmises, anderson)
 from scipy.stats import (norm, uniform, triang, expon, arcsine, gamma, skew, skewtest, kurtosis)
+from scipy.stats.contingency import association
 import statsmodels.api as sm
 from statsmodels.stats.diagnostic import lilliefors, het_white
 from statsmodels.stats.outliers_influence import variance_inflation_factor
@@ -190,3 +191,28 @@ def multicollinearity_VIF(X):
     1–5 = Moderately correlated
     >5 = Highly correlated      
 ''')
+    
+def cramers_v_all_features(df, categorical_features, target):
+    """
+    Compute Cramér's V for all categorical features vs target.
+    scipy.stats.contingency.association function includes bias correction by default for Cramér's V
+    It uses the Bergsma and Wicher (2013) correction to reduce overestimation of association,
+    especially in small samples or larger tables.
+    
+    Parameters:
+        df: DataFrame
+        categorical_features: list of column names
+        target: target column name
+    Returns:
+        Series with feature names and Cramér's V values
+    """
+    results = {}
+    y = df[target]
+    
+    for col in categorical_features:
+        # Create contingency table
+        ct = pd.crosstab(df[col], y)
+        # Calculate Cramér's V
+        results[col] = association(ct, method='cramer')
+    
+    return pd.Series(results).sort_values(ascending=False)    

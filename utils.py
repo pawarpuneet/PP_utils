@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 
 def load_data(filename):
     data = np.loadtxt(filename, delimiter=',')
@@ -65,5 +66,7 @@ def plot_decision_boundary(w, b, X, y):
         plt.show()
         print('Contour levels:')
         return contour_set.levels
+
+
 
         
