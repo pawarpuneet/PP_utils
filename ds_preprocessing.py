@@ -2,6 +2,7 @@
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
+from sklearn.model_selection import train_test_split
 
 def onehot_encode(df, cat_cols=[], drop=None):
     """ Create a ColumnTransformer that applies OneHotEncoder to the specified columns
@@ -82,4 +83,102 @@ def onehot_encode_train_test(X_train,X_test, cat_cols=[], drop=None):
     X_test_encoded[cat_feature_names] = X_test_encoded[cat_feature_names].astype(int)
     return X_train_encoded, X_test_encoded, cat_feature_names
 
+def transform_cols_and_reconstuct_df(df, transformers=[]):
+    """
+    Transform specified columns of a DataFrame using a ColumnTransformer and return a new DataFrame.
+
+    Applies a list of transformers to specified columns, leaves unspecified columns unchanged,
+    and reconstructs the output into a pandas DataFrame with proper feature names.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input DataFrame to transform.
+    transformers : list of tuples
+        List of tuples specifying transformers and columns, formatted as (name, transformer, columns).
+        Example: [('num', StandardScaler(), ['age', 'income'])].
+
+    Returns
+    -------
+    df_encoded : pandas.DataFrame
+        Transformed DataFrame with transformed and passthrough columns.
+    feature_names : array of str
+        Array of output feature names from the ColumnTransformer.
+
+    Example
+    -------
+    >>> from sklearn.preprocessing import StandardScaler
+    >>> transformers = [('num', StandardScaler(), ['age'])]
+    >>> df_encoded, names = transform_cols_and_reconstuct_df(df, transformers)
+    """
+    preprocessor = ColumnTransformer(
+        transformers=transformers,
+        remainder="passthrough",
+        verbose_feature_names_out=False
+    )
+
+    df_encoded = preprocessor.fit_transform(df)
+    feature_names = preprocessor.get_feature_names_out()
+    df_encoded = pd.DataFrame(df_encoded, columns=feature_names, index=df.index)
+    return df_encoded, feature_names   
+
+
+def stratified_split(X, y, test_size, stratify_cols=None, stratify_target=False, random_state=None):
+    """
+    Split X and y into train and test sets with optional stratification on X columns and/or y target.
     
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        Features dataframe
+    y : pandas.Series or pandas.DataFrame
+        Target variable
+    test_size : float
+        Proportion of test set (e.g., 0.2 for 20%)
+    stratify_cols : list of str, optional
+        Column names from X to stratify by
+    stratify_target : bool, default False
+        Whether to stratify by target variable
+    random_state : int, optional
+        Random state for reproducibility
+        
+    Returns
+    -------
+    X_train : pandas.DataFrame
+        Training features
+    X_test : pandas.DataFrame  
+        Test features
+    y_train : pandas.Series or pandas.DataFrame
+        Training target
+    y_test : pandas.Series or pandas.DataFrame
+        Test target
+        
+    Notes
+    -----
+    Prints proportions of stratified columns in train and test sets.
+    Uses sklearn.model_selection.train_test_split internally.
+    """
+    if stratify_cols and stratify_target:
+        stratify_data = pd.concat([X[stratify_cols], y], axis=1)
+    elif stratify_cols:
+        stratify_data = X[stratify_cols]
+    elif stratify_target:
+        stratify_data = y
+    else:
+        stratify_data = None
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, stratify=stratify_data, random_state=random_state
+    )
+
+    cols_to_check = stratify_cols if stratify_cols else []
+    if stratify_target and hasattr(y, 'name'):
+        cols_to_check = cols_to_check + [y.name if y.name else 'target']
+    
+    for col in cols_to_check:
+        print(f"\n{col} proportions in Train set:")
+        print(X_train[col].value_counts(normalize=True).sort_index() if col in X_train else y_train.value_counts(normalize=True).sort_index())
+        print(f"\n{col} proportions in Test set:")
+        print(X_test[col].value_counts(normalize=True).sort_index() if col in X_test else y_test.value_counts(normalize=True).sort_index())
+
+    return X_train, X_test, y_train, y_test   

@@ -1,10 +1,14 @@
 """ Data modeling related utility functions"""
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from scipy.stats import t
 from sklearn.metrics import classification_report, class_likelihood_ratios, make_scorer, accuracy_score
 from sklearn.model_selection import cross_validate, TunedThresholdClassifierCV
 from sklearn.preprocessing import LabelBinarizer
+from sklearn.inspection import permutation_importance
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+from sklearn.metrics.pairwise import euclidean_distances
 from itertools import combinations, permutations
 from math import factorial
 from tabulate import tabulate
@@ -191,6 +195,45 @@ def GridSearchCV_pairwise_ttest(model_scores,cv_generator,X,y):
     # Significance level used = 0.1, if p_val < 0.1 then 'reject H0'
     #     ''')
     return pairwise_comp_df
+
+def get_model_comparison_table(grid_search, metrics):
+    """
+    Extract and tabulate cross-validation results from GridSearchCV for multiple metrics.
+    
+    This function processes the cv_results_ dictionary from a fitted GridSearchCV object
+    and creates a summary DataFrame showing mean and standard deviation of test scores
+    for each model configuration across specified metrics. The results are ranked by 
+    the first metric in the list.
+    
+    Args:
+        grid_search (GridSearchCV): Fitted GridSearchCV object with multiple metrics
+        metrics (list): List of metric names (e.g., ['precision', 'recall'])
+    
+    Returns:
+        pd.DataFrame: DataFrame with model parameters, mean ± std scores for each metric, 
+                     and ranking, sorted by performance
+    """
+    # Extract all cross-validation results from GridSearchCV
+    results = grid_search.cv_results_
+    
+    # Initialize dictionary to store comparison data
+    data = {
+        # Convert model parameters to string for readability
+        'Model': [str(p) for p in results['params']]
+    }
+    
+    # Extract mean and standard deviation for each requested metric
+    for metric in metrics:
+        data[f'Mean {metric.title()}'] = results[f'mean_test_{metric}']
+        data[f'Std {metric.title()}'] = results[f'std_test_{metric}']
+    
+    df = pd.DataFrame(data)
+    
+    # Rank models by first metric (typically primary evaluation metric)
+    df['Rank'] = df[f'Mean {metrics[0].title()}'].rank(ascending=False)
+    
+    # Sort by performance rank for easy interpretation
+    return df.sort_values('Rank')
 
 ################### Functions for custom strategy for best estimator from GridSearchCV ###################
 ##########################################################################################################
@@ -468,6 +511,177 @@ def classification_tuning_decision_threshold_binary(X_train,y_train,X_test,y_tes
     Best Score from cv = {best_score_cv}''')
 
 ##############################################################
-################## Common Utilities ##################
+################## Clustering Utilities ##################
 ##############################################################
+
+def dunn_index(labels, distances):
+    """
+    Calculate the Dunn Index for cluster validation (higher is better).
+    Dunn Index: Measures cluster compactness and separation.
+    It is calculated as the ratio of the smallest inter-cluster distance 
+    to the largest intra-cluster diameter.
+    Used in clustering_performance_evaluation
+    """
+    labels = np.array(labels)
+    distances = np.array(distances)
+    
+    unique_labels = np.unique(labels)
+    n_clusters = len(unique_labels)
+    
+    # Compute diameter of each cluster (max intra-cluster distance)
+    diameters = []
+    for label in unique_labels:
+        in_cluster = distances[labels == label][:, labels == label]
+        diameters.append(np.max(in_cluster) if in_cluster.size > 0 else 0)
+    max_diameter = np.max(diameters)
+    
+    # Compute minimal inter-cluster distance
+    inter_distances = []
+    for i, label_i in enumerate(unique_labels):
+        for j, label_j in enumerate(unique_labels):
+            if i < j:
+                between = distances[labels == label_i][:, labels == label_j]
+                if between.size > 0:
+                    inter_distances.append(np.min(between))
+    min_inter_distance = np.min(inter_distances)
+    
+    return min_inter_distance / max_diameter
+
+def clustering_performance_evaluation(X, labels_dict,plot_silhouette_analysis=True):
+    """
+    Evaluate and compare clustering performance across multiple models with a table output.
+    
+    Parameters:
+    X : array-like of shape (n_samples, n_features)
+        The input data.
+    labels_dict : dict
+        Dictionary with model names as keys and cluster labels as values.
+    
+    Silhouette Coefficient (range: -1 to 1):
+        A score close to 1 indicates that clusters are well-separated and samples are correctly assigned.
+        A score near 0 suggests overlapping clusters.
+        A negative score means some samples may be assigned to the wrong cluster.
+    Calinski-Harabasz Index:
+        A higher value indicates better clustering, with dense and well-separated clusters.
+        This index compares between-cluster variance to within-cluster variance—larger values mean 
+        stronger separation.
+    Davies-Bouldin Index:
+        A lower value (closer to 0) indicates better clustering.
+        It measures the average similarity between each cluster and its most similar one—
+        smaller values mean clusters are more distinct and compact
+    Dunn Index: 
+        Measures cluster compactness and separation.higher is better
+        It is calculated as the ratio of the smallest inter-cluster distance 
+        to the largest intra-cluster diameter.
+    """
+    if plot_silhouette_analysis:
+        data_plotting.clustering_silhouette_analysis(X,labels_dict)
+    results = []
+    distances = euclidean_distances(X)
+    
+    for model_name, labels in labels_dict.items():
+        sil_score = silhouette_score(X, labels)
+        ch_score = calinski_harabasz_score(X, labels)
+        db_score = davies_bouldin_score(X, labels)
+        dunn_score = dunn_index(labels, distances)
+        
+        results.append({
+            'Model': model_name,
+            'Silhouette': f"{sil_score:.3f}",
+            'Calinski-Harabasz': f"{ch_score:.3f}",
+            'Dunn Index': f"{dunn_score:.3f}",
+            'Davies-Bouldin': f"{db_score:.3f}"
+        })
+    
+    # Display results
+    df = pd.DataFrame(results)
+    #print(df.to_string(index=False))
+
+    print("\n--- Interpretation ---")
+    print("• Silhouette Coefficient: Higher is better (close to 1).")
+    print("• Calinski-Harabasz Index: Higher is better.")
+    print("• Dunn Index: Higher is better.")
+    print("• Davies-Bouldin Index: Lower is better (closer to 0).")    
+    # Apply color formatting and return
+    return df.style \
+        .background_gradient(cmap='Greens', subset=['Silhouette', 'Calinski-Harabasz', 'Dunn Index']) \
+        .background_gradient(cmap='Greens_r', subset=['Davies-Bouldin'])
+
+##############################################################
+################## Generic Model Inspection Utilities ##################
+##############################################################
+def plot_permutation_importance(estimator, X, y, n_repeats=10, random_state=42, title="Permutation Importances",scoring_metric=None):
+    """
+    Plot permutation feature importance for a given estimator and dataset.
+    Use it on both training and test set. The difference between those two plots
+    can tell us if model is using any features to overfit.
+    We can then remedy the overfit and then if we try it on training and test set
+    feature importance should look similar.
+
+    If we have high scoring model but no feature appears important, we have multicollinearity in our data.
+    Model is getting info from other correlated features, so no big drop in scoring metric.
+    Once we keep only one of the highly correlated features, we should see drop in scoring metric.
+
+    Read more here: 
+    https://scikit-learn.org/stable/modules/permutation_importance.html
+    https://scikit-learn.org/stable/auto_examples/inspection/plot_permutation_importance.html
+    Parameters
+    ----------
+    estimator : object
+        A fitted sklearn-compatible estimator.
+    X : pd.DataFrame or array-like
+        Feature data (test or validation set).
+    y : array-like
+        Target values.
+    n_repeats : int, default=10
+        Number of times to permute each feature.
+    random_state : int, default=42
+        Random seed for reproducibility.
+    title : str, default="Permutation Importances"
+        Title for the plot.
+    scoring_metric: Scorer to use, if None, the estimator’s default evaluation criterion is used.
+    Returns
+    -------
+    result : Bunch
+        Result from sklearn's permutation_importance.
+    ax : matplotlib.axes.Axes
+        Axes object of the generated boxplot.
+    """
+    result = permutation_importance(
+        estimator, X, y, n_repeats=n_repeats, random_state=random_state, n_jobs=-1, scoring=scoring_metric
+    )
+    sorted_idx = result.importances_mean.argsort()
+    importances_df = pd.DataFrame(
+        result.importances[sorted_idx].T,
+        columns=X.columns[sorted_idx]
+    )
+    ax = importances_df.plot.box(vert=False, whis=10)
+    ax.set_title(title)
+    ax.axvline(x=0, color="k", linestyle="--")
+    ax.set_xlabel("Decrease in score")
+    ax.figure.tight_layout()
+    print("Note: Permutation importance does not reflect the intrinsic predictive value of " \
+    "a feature by itself but how important this feature is for a particular model.")
+    return result, ax   
+
+def plot_feature_importance(model, model_name, feature_names):
+    """
+    Extracts and plots feature importance for Tree-based models and regression.
+    """
+    importances = None
+    if hasattr(model, 'feature_importances_'):
+        importances = model.feature_importances_
+    elif hasattr(model, 'coef_'): # For  Regression
+        importances = np.abs(model.coef_[0])
+    
+    if importances is not None:
+        indices = np.argsort(importances)[::-1]
+        plt.figure(figsize=(10, 5))
+        plt.title(f"Feature Importance - {model_name}")
+        plt.bar(range(len(importances)), importances[indices], align="center", color='teal')
+        plt.xticks(range(len(importances)), [feature_names[i] for i in indices], rotation=45, ha='right')
+        plt.tight_layout()
+        plt.show()
+    else:
+        print(f"{model_name} does not provide direct feature importance.")
 

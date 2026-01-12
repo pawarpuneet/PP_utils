@@ -1,4 +1,6 @@
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -6,13 +8,19 @@ import math
 import statsmodels.api as sm
 from scipy.stats import pearsonr
 import scipy.stats as stats
+from scipy.cluster import hierarchy
+from scipy.spatial.distance import squareform
+from scipy.stats import spearmanr
 from pygam import GAM, s, f, LinearGAM
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report, multilabel_confusion_matrix
 from sklearn.metrics import RocCurveDisplay, PrecisionRecallDisplay, DetCurveDisplay, auc, roc_curve
 from sklearn.model_selection import StratifiedKFold, cross_validate
 from sklearn.dummy import DummyClassifier
-from sklearn.preprocessing import LabelBinarizer
+from sklearn.preprocessing import LabelBinarizer, StandardScaler
+from sklearn.metrics import silhouette_samples, silhouette_score
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
 from PP_utils import ds_statistics
 from typing import Literal
 from itertools import cycle
@@ -50,13 +58,14 @@ def plot_normality_check(x,hist_stat='count'):
     plt.show()
     ds_statistics.normality_tests(x)
  
-def plot_multicollinearity_checks(X,corr_matrix_figsize=(12,5)):
+def plot_multicollinearity_checks(X,corr_matrix_figsize=(12,5),pair_plot=True):
     ''' correlation matrix is generated using pd.DataFrame.corr()
     p-value is calculated using pearsonr test from scipy.stats'''
     #Pairplots for X to confirm absence of collinearity
     df = pd.DataFrame(X)
-    sns.pairplot(data=df)
-    plt.show()
+    if pair_plot:
+        sns.pairplot(data=df)
+        plt.show()
     print('''
           The Pearson correlation coefficient measures the linear relationship between two datasets.
           Test for the statistical significance of the correlation coefficient:
@@ -76,6 +85,61 @@ def plot_multicollinearity_checks(X,corr_matrix_figsize=(12,5)):
     plt.show()
     # VIF factor 
     ds_statistics.multicollinearity_VIF(X)
+
+def plot_corr_dendrogram(X):
+    """
+    Plot hierarchical clustering dendrogram and reordered correlation matrix i.e. 
+    the rows and columns are reordered based on the hierarchical clustering dendrogram.
+
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        Input data with features as columns. Used to compute Spearman correlation
+        and hierarchical clustering.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The created figure object.
+    axes : tuple of matplotlib.axes.Axes
+        Tuple (ax1, ax2) containing the dendrogram and correlation matrix axes.
+    dist_linkage : ndarray
+        Linkage matrix from hierarchical clustering using Ward's method.
+    
+    Note:
+    dis_linkage of this function can be used as an input to 
+    `ds_feature_selection.select_features_from_clusters`
+    """
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 8))
+    
+    # Compute Spearman correlation
+    corr = spearmanr(X).correlation
+    corr = (corr + corr.T) / 2  # Ensure symmetry
+    np.fill_diagonal(corr, 1)
+    
+    # Convert to distance matrix and perform clustering
+    distance_matrix = 1 - np.abs(corr)
+    dist_linkage = hierarchy.ward(squareform(distance_matrix))
+    
+    # Plot dendrogram
+    dendro = hierarchy.dendrogram(
+        dist_linkage, labels=X.columns.tolist(), ax=ax1, leaf_rotation=90
+    )
+    dendro_idx = np.arange(0, len(dendro["ivl"]))
+    
+    # Plot reordered correlation matrix
+    im = ax2.imshow(corr[dendro["leaves"], :][:, dendro["leaves"]])
+    ax2.set_xticks(dendro_idx)
+    ax2.set_yticks(dendro_idx)
+    ax2.set_xticklabels(dendro["ivl"], rotation="vertical")
+    ax2.set_yticklabels(dendro["ivl"])
+    ax1.set_title("Hierarchical Clustering Dendrogram")
+    ax2.set_title("Reordered Correlation Matrix")
+    ax1.set_ylabel("Ward Linkage Distance")
+    fig.colorbar(im, ax=ax2)
+    fig.tight_layout()
+    
+    return fig, (ax1, ax2), dist_linkage
 
 def plot_linearity_checks_for_target(X,y,fit_smooth_curve=True,X_is_categorical=False,y_is_categorical=False,normalize_y_when_X_is_cat=False,normalize_X_when_y_is_cat=False):
     '''check for linearity between dependent and independent vars'''
@@ -242,6 +306,7 @@ def plot_actual_vs_predicted(y,y_pred,X=None,figsize=(15,5),data_label='', run_s
     ######### Set of plot for residuals #########
     fig, ax = plt.subplots(1,3,figsize =(15,5), layout='constrained')
     residuals = y - y_pred 
+    #print(f'{"Residuals Mean:":20} {residuals.mean():.2e}')
     # residuals distribution for normality check
     sns.histplot(residuals, kde=True, ax=ax[0])
     ax[0].set_xlabel('Residuals (actual-predicted)')
@@ -384,7 +449,7 @@ def clf_confusion_matrix(y,y_pred,classes=[],title_label='',print_classification
 
 def clf_confusion_matrix_from_estimator(X,y,classifiers={}):
     '''Calculates confusion matrix and plots it.
-    Also print classification report'''
+    '''
     clfs = [(name,clf) for name,clf in classifiers.items()]
 
     for i in range(0,len(clfs),2):
@@ -531,7 +596,7 @@ def clf_roc_curve_with_cross_val(classifier,X,y,n_splits=6):
     ax.legend(loc="lower right")
     plt.show()    
 
-################# Multiclass classification #################
+################# Multiclass, Multilabel classification #################
 #############################################################
 # https://scikit-learn.org/stable/auto_examples/model_selection/plot_roc.html#sphx-glr-auto-examples-model-selection-plot-roc-py  #
 
@@ -687,3 +752,397 @@ def clf_roc_curve_OvR_for_multiclass(X_train,y_train,X_test,y_test,classifier,n_
         ylabel="True Positive Rate",
         title="Receiver Operating Characteristic\nfor One-vs-Rest multiclass",
     )    
+
+
+
+def clf_multilabel_confusion_matrix_OvR_for_multiclass(y_true, y_pred, labels=None, samplewise=False):
+    """
+    Compute class-wise or sample-wise multilabel confusion matrix for multiclass classification.
+    
+    This function computes a confusion matrix for each class in a multiclass setting using the one-vs-rest (OvR)
+    approach. It visualizes each class's confusion matrix and returns per-class performance metrics.
+    
+    works for both multiclass or binarized label indicators
+
+    Parameters
+    ----------
+    y_true : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        Ground truth (correct) labels.
+    y_pred : array-like of shape (n_samples,) or (n_samples, n_outputs)
+        Predicted labels as returned by a classifier.
+    labels : array-like of shape (n_classes,), default=None
+        List of labels to index the confusion matrices. If None, the unique labels from y_true and y_pred 
+        are used in sorted order. Also use as target names for classification report.
+        label names for for binarized label indicators of multilabel
+        or classes for multiclass
+    samplewise : bool, default=False
+        If True, compute sample-wise confusion matrices instead of class-wise.
+
+    Returns
+    -------
+    recall : ndarray of shape (n_classes,)
+        Per-class recall (true positive rate).
+    specificity : ndarray of shape (n_classes,)
+        Per-class specificity (true negative rate).
+    false_positive_rate : ndarray of shape (n_classes,)
+        Per-class false positive rate.
+    miss_rate : ndarray of shape (n_classes,)
+        Per-class miss rate (false negative rate).
+    """
+    mcm = multilabel_confusion_matrix(y_true, y_pred, labels=labels, samplewise=samplewise)
+    fig, axes = plt.subplots(1, len(mcm), figsize=(5 * len(mcm), 4))
+    if len(mcm) == 1:
+        axes = [axes]
+    
+    for i, cm in enumerate(mcm):
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=[f'Not Class {i}', f'Class {i}'])
+        disp.plot(ax=axes[i], values_format='d', colorbar=False)
+        axes[i].set_title(f'Class {i} (One-vs-Rest)')
+    plt.tight_layout()
+    plt.show()
+
+    # Print comprehensive classification report
+    # Use provided labels and target_names
+    print("Classification Report:")
+    print(classification_report(y_true, y_pred, target_names=labels))
+
+    # Return metrics for further analysis
+    tn = mcm[:, 0, 0]
+    tp = mcm[:, 1, 1]
+    fn = mcm[:, 1, 0]
+    fp = mcm[:, 0, 1]
+    recall = tp / (tp + fn)
+    specificity = tn / (tn + fp)
+    false_positive_rate = fp / (fp + tn)
+    miss_rate = fn / (fn + tp)
+    
+    return recall, specificity, false_positive_rate, miss_rate   
+
+##############################################################
+################## Clustering Utilities ##################
+##############################################################
+
+def clustering_plot_elbow_curve(scores, k_values):
+    """
+    Plot elbow curve and percentage change in score(like inertia) vs k.
+
+    Parameters
+    ----------
+    scores : list of float
+        example Inertia values for each k.
+    k_values : list of int
+        Corresponding k values.
+
+    Returns
+    -------
+    None
+        Displays two plots: elbow curve and percentage change.
+    """
+    # Calculate percentage change
+    percentage_changes = []
+    for i in range(1, len(scores)):
+        change = (scores[i-1] - scores[i]) / scores[i-1] * 100
+        percentage_changes.append(change)
+
+    # Create subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+
+    # Elbow curve
+    ax1.plot(k_values, scores, marker='o', linestyle='-')
+    ax1.set_title('Elbow Curve')
+    ax1.set_xlabel('Number of Clusters (k)')
+    ax1.set_ylabel('Inertia')
+    ax1.grid(True)
+
+    # Percentage change bar plot
+    colors = [dldarkred if x < 0 else dlblue for x in percentage_changes]
+    bars = ax2.bar(k_values[1:], percentage_changes, color=colors)
+    ax2.bar_label(bars, labels=[f'{p:+.1f}%' for p in percentage_changes],
+                  fontsize=10, color='black', weight='bold')
+    ax2.set_title('Percentage Decrease in Inertia')
+    ax2.set_xlabel('Number of Clusters (k)')
+    ax2.set_ylabel('Percentage Decrease (%)')
+    ax2.set_ylim(min(min(percentage_changes)*1.1, 0), max(percentage_changes)*1.1)
+    ax2.grid(axis='y', linestyle='--', alpha=0.7)
+
+    plt.tight_layout()
+    plt.show()   
+
+
+def clustering_plot_elbow_curve_using_KMeans(df, scale=True, max_k=10):
+    """
+    Plot elbow curve and percentage change in inertia vs k.
+    Can either accept precomputed scores or a DataFrame to compute them.
+    w
+    Parameters
+    ----------
+    scores : list of float, optional
+        Inertia values for each k.
+    k_values : list of int, optional
+        Corresponding k values.
+    df : pd.DataFrame, optional
+        Data to cluster using KMeans.
+    scale : bool, default True
+        Whether to standardize the data before clustering.
+    max_k : int, default 10
+        Maximum number of clusters to try if df is provided.
+
+    Returns
+    -------
+    dict or None
+        Dictionary with k>=2 as keys and cluster labels as values if df is provided; else None.
+        Displays two plots: elbow curve and percentage change.
+    """
+    labels_dict = {}
+    data = None
+    # Prepare data
+    data = df.select_dtypes(include=[np.number])  # Use only numeric columns
+    if scale:
+        data = StandardScaler().fit_transform(data)
+    
+    # Define k range and compute inertia
+    k_values = list(range(2, max_k + 1))
+    scores = []
+    for k in k_values:
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init='auto')
+        kmeans.fit(data)
+        scores.append(kmeans.inertia_)
+        labels_dict[k] = kmeans.labels_
+    clustering_plot_elbow_curve(scores,k_values)
+
+    return labels_dict if df is not None else None
+
+def clustering_silhouette_analysis(X, labels_dict):
+    """
+    Perform silhouette analysis for pre-labeled clustering results with 2D PCA visualization.
+
+    Parameters
+    ----------
+    X : array-like of shape (n_samples, n_features)
+        The input data.
+    labels_dict : dict
+        Dictionary with model names as keys and cluster labels as values.
+
+    Returns
+    -------
+    None
+        Displays plots for each model.
+    """
+    print("Silhouette coefficient interpretation:")
+    print("- Near +1: Well-clustered")
+    print("- Near 0: On the boundary")
+    print("- Negative: Likely wrong cluster")
+    
+    for model_name, cluster_labels in labels_dict.items():
+        fig, (ax1, ax2) = plt.subplots(1, 2)
+        fig.set_size_inches(18, 7)
+
+        # Silhouette plot
+        ax1.set_xlim([-0.1, 1])
+        n_clusters = len(np.unique(cluster_labels))
+        ax1.set_ylim([0, len(X) + (n_clusters + 1) * 10])
+
+        unique_labels = np.unique(cluster_labels)
+        if len(unique_labels) < 2:
+            print("Silhouette Score is undefined: only one cluster found.")
+            return
+        silhouette_avg = silhouette_score(X, cluster_labels)
+        sample_silhouette_values = silhouette_samples(X, cluster_labels)
+
+        y_lower = 10
+        for i in range(n_clusters):
+            ith_cluster_silhouette_values = sample_silhouette_values[cluster_labels == i]
+            ith_cluster_silhouette_values.sort()
+
+            size_cluster_i = ith_cluster_silhouette_values.shape[0]
+            y_upper = y_lower + size_cluster_i
+
+            color = cm.nipy_spectral(float(i) / n_clusters)
+            ax1.fill_betweenx(np.arange(y_lower, y_upper), 0, ith_cluster_silhouette_values,
+                              facecolor=color, edgecolor=color, alpha=0.7)
+
+            ax1.text(-0.05, y_lower + 0.5 * size_cluster_i, str(i))
+            y_lower = y_upper + 10
+
+        ax1.set_title("Silhouette plot", fontsize=14)
+        ax1.set_xlabel("Silhouette coefficient values", fontsize=12)
+        ax1.set_ylabel("Cluster label", fontsize=12)
+        ax1.axvline(x=silhouette_avg, color="red", linestyle="--")
+        ax1.set_yticks([])
+        ax1.set_xticks([-0.1, 0, 0.2, 0.4, 0.6, 0.8, 1])
+
+        # PCA scatter plot
+        pca = PCA(n_components=2)
+        X_pca = pca.fit_transform(X)
+        explained_var = pca.explained_variance_ratio_
+
+        colors = cm.nipy_spectral(cluster_labels.astype(float) / n_clusters)
+        ax2.scatter(X_pca[:, 0], X_pca[:, 1], marker=".", s=200, lw=0, alpha=0.7, c=colors, edgecolor="k")
+
+
+        # Compute cluster centers in PCA space
+        centers_pca = []
+        for i in range(n_clusters):
+            cluster_points = X_pca[cluster_labels == i]
+            center = cluster_points.mean(axis=0)
+            centers_pca.append(center)
+        centers_pca = np.array(centers_pca)
+
+        # Plot centers
+        ax2.scatter(centers_pca[:, 0], centers_pca[:, 1],
+                    marker='o', c='white', alpha=1, s=300, edgecolor='k')
+        for i, c in enumerate(centers_pca):
+            ax2.scatter(c[0], c[1], marker=f'${i}$', s=80, edgecolor='k')
+
+        ax2.set_title("Clustered data (PCA visualization)", fontsize=14)
+        ax2.set_xlabel(f'PC1 ({explained_var[0]:.1%} var)', fontsize=12)
+        ax2.set_ylabel(f'PC2 ({explained_var[1]:.1%} var)', fontsize=12)
+
+        plt.suptitle(f'Silhouette analysis for {model_name} (n_clusters = {n_clusters})',
+                     fontsize=16, fontweight='bold')
+        plt.tight_layout()
+        plt.show()   
+
+##############################################################
+################## Common Utilities ##################
+##############################################################
+
+def create_and_plot_crosstab(df, index_col, column_cols, aggfunc='size'):
+    """
+    Create normalized crosstabs for multiple columns and plot as horizontal stacked bar charts.
+    
+    This function computes a crosstabulation of each column and index_col, normalizes values by row 
+    (to show percentages within each index group), and generates a labeled horizontal 
+    stacked bar chart.
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input DataFrame containing the data.
+    index_col : str
+        Column name to use as the index (e.g., 'cluster').
+    column_cols : list of str
+        List of column names to use as columns (e.g., ['gender', 'category']).
+    aggfunc : str or callable, optional
+        Aggregation function for crosstab (default is 'size').
+
+    Returns
+    -------
+    dict
+        Dictionary of normalized crosstab DataFrames (percentages) keyed by column name.
+    """
+    n_cols = len(column_cols)
+    n_rows = (n_cols + 1) // 3  # Calculate required rows for 3 columns
+    fig, axes = plt.subplots(n_rows, 3, figsize=(12, 4 * n_rows))  # Reduced width and height
+    if n_cols == 1:
+        axes = [axes]
+    else:
+        axes = axes.flatten()  # Flatten for easy iteration
+
+    cross_tabs = {}
+    for i, col in enumerate(column_cols):
+        ax = axes[i]
+        cross_tab = pd.crosstab(
+            index=df[index_col],
+            columns=df[col],
+            values=df[col] if aggfunc else None,
+            aggfunc=aggfunc,
+            normalize='index'
+        ) * 100
+        cross_tabs[col] = cross_tab
+
+        cross_tab.plot(kind='bar', stacked=True, ax=ax, alpha=0.7)
+        ax.set_title(f'{index_col} by {col}')
+        ax.set_ylabel('Percentage (%)')
+        ax.set_xlabel(index_col)
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=0)
+        ax.legend(title=col)   
+        #ax.set_ylim(0,140)
+
+        # for container in ax.containers:
+        #     ax.bar_label(container, fmt='%.1f%%', label_type='center')
+
+    # Hide unused subplots
+    for j in range(i + 1, len(axes)):
+        axes[j].set_visible(False)
+
+    plt.xticks(rotation=0)
+    plt.tight_layout()  # Leave space at the top
+    plt.show()
+    return cross_tabs   
+
+def plot_mean_by_group(df, group_by_col, columns):
+    """
+    Plot mean values of specified columns grouped by a categorical column.
+    
+    Parameters:
+    df (pd.DataFrame): Input dataframe
+    group_by_col (str): Column to group by
+    columns (list): List of columns to compute mean and plot
+    """
+    n_cols = min(len(columns), 3)
+    n_rows = (len(columns) + 2) // 3
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
+    if n_cols == 1 or n_rows == 1:
+        axes = axes.flatten()
+    else:
+        axes = axes.flat
+
+    # Create color map for group_by_col
+    groups = df[group_by_col].unique()
+    colors = plt.cm.get_cmap('tab10', len(groups))
+    color_map = {group: colors(i) for i, group in enumerate(groups)}
+
+    for i, col in enumerate(columns):
+        grouped = df.groupby(group_by_col)[col].mean()
+        # Assign color based on group
+        bar_colors = [color_map[g] for g in grouped.index]
+        grouped.plot(kind='bar', ax=axes[i], color=bar_colors, title=f'Mean {col} by {group_by_col}')
+        axes[i].set_ylabel('Mean')
+        axes[i].set_xlabel(group_by_col)
+        axes[i].tick_params(axis='x', rotation=0)
+
+    # Hide unused subplots
+    for j in range(i + 1, len(axes)):
+        axes[j].set_visible(False)
+
+    plt.tight_layout()
+    plt.show()
+
+def plot_scatter_by_group(df, column_pairs, group_by_col):
+    """
+    Create scatter plots for column pairs, colored by group_by_col, with up to 2 plots per row.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input dataframe containing the data.
+    column_pairs : list of tuple
+        List of (x_col, y_col) pairs for scatter plots.
+    group_by_col : str
+        Column name to use for coloring and legend.
+    """
+    # Create consistent color map (same as plot_mean_by_group)
+    groups = df[group_by_col].unique()
+    colors = plt.cm.get_cmap('tab10', len(groups))
+    palette = {group: colors(i) for i, group in enumerate(groups)}
+
+    n = len(column_pairs)
+    n_cols = 2
+    n_rows = (n + 1) // 2
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(10 * n_cols, 5 * n_rows))
+    if n == 1:
+        axes = [axes]
+    else:
+        axes = axes.flatten() if n > 2 else axes
+
+    for i, (x_col, y_col) in enumerate(column_pairs):
+        sns.scatterplot(data=df, x=x_col, y=y_col, hue=group_by_col, ax=axes[i], palette=palette,s=100)
+        axes[i].set_title(f'{y_col} vs {x_col}', fontsize=18)
+        axes[i].legend(title=group_by_col, fontsize=14, title_fontsize=14)
+        axes[i].set_xlabel(x_col, fontsize=14)
+        axes[i].set_ylabel(y_col, fontsize=14)
+    for j in range(i + 1, len(axes)):
+        axes[j].set_visible(False)
+
+    plt.tight_layout()
+    plt.show()

@@ -4,19 +4,32 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import StandardScaler
 
+def clean_up_col_names(df):
+    """
+    strip spaces from front and back,
+    replaces spaces in middle with '_'
+    and make it lower case
+    
+    :param df: data frame
 
-""" The function below uses seaborn.heatmap() to represent the correlation
-between columns with missing values. The values are represented as a
-heatmap, where the color intensity indicates the strength of the correlation.
-This is useful for identifying relationships between missing values in different columns. 
-Values very close to 0, where there is little to no relationship, aren't labeled.
-Values close to -1 indicate a near perfect negative correlation. 
-That means for almost every row that has a null value in one column, 
-the other has a non-null value and vice-versa.
-"""
+    return:
+        dataframe with cleaned up col names
+    """
+    df.columns = df.columns.str.strip().str.replace(r'\s+', '_', regex=True).str.lower()
+    return df
+
 def plot_null_correlations(df):
-
+    """ This function uses seaborn.heatmap() to represent the correlation
+    between columns with missing values. The values are represented as a
+    heatmap, where the color intensity indicates the strength of the correlation.
+    This is useful for identifying relationships between missing values in different columns. 
+    Values very close to 0, where there is little to no relationship, aren't labeled.
+    Values close to -1 indicate a near perfect negative correlation. 
+    That means for almost every row that has a null value in one column, 
+    the other has a non-null value and vice-versa.
+    """
     # create a correlation matrix only for columns with at least
     # one missing value
     cols_with_missing_vals = df.columns[df.isnull().sum() > 0]
@@ -45,13 +58,14 @@ def plot_null_correlations(df):
 
     plt.show()
 
-""" The function below uses seaborn.heatmap() to represent null values 
-as light squares and non-null values as dark squares.
-This is useful for visualizing the distribution of missing values
-across the DataFrame. 
-Sorting the DataFrame is recommended before using this function.
-This will gather some of the null and non-null values together and make patterns more obvious."""
+
 def plot_null_matrix(df, figsize=(18,15)):
+    """ The function below uses seaborn.heatmap() to represent null values 
+    as light squares and non-null values as dark squares.
+    This is useful for visualizing the distribution of missing values
+    across the DataFrame. 
+    Sorting the DataFrame is recommended before using this function.
+    This will gather some of the null and non-null values together and make patterns more obvious."""
     # initiate the figure
     plt.figure(figsize=figsize)
     # create a boolean dataframe based on whether values are null
@@ -194,3 +208,77 @@ def plot_categorical_bars_grouped_by(df, categorical_cols, group_by_col='target'
     plt.tight_layout()
     plt.show()   
 
+def plot_numeric_distributions(df, numeric_cols, group_by=None,normalize_data_for_violin=True,pair_plot=True,kde_plot=False):
+    # Histograms with subplots
+    n_cols = len(numeric_cols)
+    n_rows = (n_cols + 2) // 3
+    fig, axes = plt.subplots(n_rows, 3, figsize=(12, 4 * n_rows))
+    axes = axes.flatten() if n_cols > 1 else [axes]
+
+    for i, col in enumerate(numeric_cols):
+        if group_by and group_by in df.columns:
+            # Overlay histograms per group
+            for group_val in df[group_by].unique():
+                data = df[df[group_by] == group_val][col].dropna()
+                bins = np.linspace(data.min(), data.max(), 11)
+                axes[i].hist(data, bins=bins, alpha=0.5, label=str(group_val))
+                axes[i].set_xticks(bins)
+            axes[i].legend(title=group_by)
+        else:
+            data = df[col].dropna()
+            bins = np.linspace(data.min(), data.max(), 11)
+            axes[i].hist(data, bins=bins)
+            axes[i].set_xticks(bins)
+        axes[i].set_title(f'{col}')
+        axes[i].tick_params(axis='x', rotation=45)
+
+    for j in range(i + 1, len(axes)):
+        axes[j].set_visible(False)
+    plt.suptitle('Histograms',fontsize=14)
+    #plt.subplots_adjust(top=0.95)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
+    
+    if kde_plot:
+        # KDE subplots per numeric column
+        melted_df = df[numeric_cols + ([group_by] if group_by and group_by in df.columns else [])].melt(
+            id_vars=group_by, var_name='Variable', value_name='Value'
+        )
+        with plt.rc_context({'axes.labelsize': 14, 'xtick.labelsize': 12, 'ytick.labelsize': 12}):
+            if group_by and group_by in df.columns:
+                sns.displot(data=melted_df, x='Value', col='Variable', hue=group_by, col_wrap=3,
+                    kind='kde', fill=True, facet_kws={'sharex': False, 'sharey': False})   
+            else:
+                sns.displot(data=melted_df, x='Value', col='Variable', col_wrap=3,
+                    kind='kde', fill=True, facet_kws={'sharex': False, 'sharey': False})   
+            plt.suptitle('KDE Plots by Column', y=1.02, fontsize=14)
+            plt.show()
+
+        if pair_plot:
+            # Pairplot with hue
+            if group_by:
+                sns.pairplot(df[numeric_cols + [group_by]], hue=group_by, diag_kind='kde')
+            else:
+                sns.pairplot(df[numeric_cols],diag_kind='kde')
+            plt.show()
+
+
+    # Violin plots
+    df_melted = df[numeric_cols + ([group_by] if group_by else [])].melt(
+        id_vars=group_by, var_name='Variable', value_name='Value'
+    )
+    if normalize_data_for_violin:
+        # Apply normalization per variable
+        scaler = StandardScaler()
+        df_melted['Value'] = df_melted.groupby('Variable')['Value'].transform(
+            lambda x: scaler.fit_transform(x.values.reshape(-1, 1)).flatten()
+        )
+
+    plt.figure(figsize=(10, 6))
+    sns.violinplot(x='Variable', y='Value', hue=group_by, data=df_melted, split=group_by is not None)
+    plt.title('Violin Plots of Numeric Columns')
+    plt.xticks(rotation=45)
+    if normalize_data_for_violin:
+        plt.ylabel('Normalized Value')
+    plt.tight_layout()
+    plt.show()   
